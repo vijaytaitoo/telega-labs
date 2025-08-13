@@ -1,0 +1,51 @@
+name: XSS Security Scan
+
+on:
+  workflow_dispatch: {}   # запуск вручную из вкладки Actions
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install XSStrike
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install xsstrike
+
+      - name: Run XSStrike
+        env:
+          BASE_URL: ${{ secrets.XSS_BASE_URL }}
+        run: |
+          echo "Scanning: $BASE_URL"
+          # Отчёт пишем в файл
+          xsstrike -u "$BASE_URL" --crawl -l 2 --timeout 6 --skip-dom \
+            | tee xss-report.txt
+          # Короткий итог (кол-во упоминаний 'Payload'/'Vulnerable')
+          grep -E "Payload|Vulnerable|Reflected" -n xss-report.txt || true
+
+      - name: Upload report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xsstrike-report
+          path: xss-report.txt
+
+      # === Уведомление в Telegram (опционально) ===
+      - name: Notify Telegram
+        if: always()   # шлём в любом случае: success/failure
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT:  ${{ secrets.TELEGRAM_CHAT_ID }}
+          GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then
+            echo "Telegram secrets not set, skipping notification."
+            exit 0
+          fi
+          STATUS="${{ job.status }}"
+          MSG="🔐 XSS Scan: *$STATUS*\nRepo: ${{ github.repository }}\nURL: ${XSS_BASE_URL}\nRun: ${GITHUB_RUN_URL}"
+          curl -s -X POST "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
+            -d chat_id="$TG_CHAT" -d parse_mode=Markdown -d text="$MSG" \
+            >/dev/null 2>&1 || true
