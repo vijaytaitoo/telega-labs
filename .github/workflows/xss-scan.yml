@@ -1,0 +1,31 @@
+name: XSS Security Scan
+
+on:
+  workflow_dispatch:  # запуск вручную
+
+jobs:
+  xss-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y python3 python3-pip
+
+      - name: Install XSStrike
+        run: pip3 install xsstrike
+
+      - name: Run XSS Scan
+        run: |
+          xsstrike -u "http://localhost:3000" --crawl > xss-report.txt
+
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+      - name: Upload XSS Report
+        uses: actions/upload-artifact@v3
+        with:
+          name: xsstrike-report
+          path: xss-report.txt
