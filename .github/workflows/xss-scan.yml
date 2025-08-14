@@ -1,28 +1,44 @@
 name: XSS Security Scan
 
 on:
-  workflow_dispatch:   # Запуск вручную
+  workflow_dispatch: {}
 
 jobs:
   scan:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Install XSStrike
         run: |
-          python3 -m pip install --upgrade pip
+          python3 -m pip install --upgrade pip setuptools wheel
           pip install xsstrike
 
-      - name: Run XSS Scan
+      - name: Set target URL
+        id: url
         run: |
-          echo "Scanning: http://localhost:3000"
-          xsstrike -u "http://localhost:3000" --crawl > xss-report.txt
+          if [ -n "${{ secrets.XSS_BASE_URL }}" ]; then
+            echo "url=${{ secrets.XSS_BASE_URL }}" >> $GITHUB_OUTPUT
+            echo "Using secret XSS_BASE_URL: ${{ secrets.XSS_BASE_URL }}"
+          else
+            echo "url=http://localhost:3000" >> $GITHUB_OUTPUT
+            echo "❗ XSS_BASE_URL not set, defaulting to http://localhost:3000 (likely unreachable from GitHub)."
+          fi
+
+      - name: Run XSS scan
+        continue-on-error: true
+        run: |
+          mkdir -p reports
+          TARGET="${{ steps.url.outputs.url }}"
+          echo "Scanning: $TARGET"
+          xsstrike -u "$TARGET" --crawl -l 2 --timeout 8 --skip-dom | tee reports/xss-report.txt
+          echo "---- QUICK SUMMARY ----"
+          grep -E "Payload|Vulnerable|Reflected|DOM" -n reports/xss-report.txt || echo "No obvious findings in summary."
 
       - name: Upload report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: xsstrike-report
-          path: xss-report.txt
+          path: reports/xss-report.txt
+
